@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CaptivePortalSms</RootNamespace>
+    <UserSecretsId>b46885a3-6cc4-42fc-9751-e476e09bb348</UserSecretsId>
+  </PropertyGroup>
+
+  <!--
+    Ekstra NuGet paketi yok. Retry/backoff manuel yazildi (Polly opsiyonel).
+    Sadece framework bagimliliklari kullanilir.
+  -->
+
+</Project>

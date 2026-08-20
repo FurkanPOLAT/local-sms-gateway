@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SLNMODA Misafir Wi-Fi</title>
+  <style>
+    :root { --brand: #1565C0; --brand-dark: #0d47a1; --bg: #f2f4f8; --err: #c62828; --ok: #2e7d32; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: var(--bg);
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .card {
+      width: 100%; max-width: 380px; background: #fff; border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.08); overflow: hidden;
+    }
+    .head { background: var(--brand); color: #fff; padding: 28px 24px 22px; text-align: center; }
+    .head h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+    .head p { margin: 6px 0 0; font-size: 13px; opacity: .9; }
+    .body { padding: 24px; }
+    label { display: block; font-size: 13px; color: #444; margin: 0 0 6px; }
+    input {
+      width: 100%; padding: 13px 14px; font-size: 16px; border: 1.5px solid #d7dbe3;
+      border-radius: 10px; outline: none; transition: border-color .15s;
+    }
+    input:focus { border-color: var(--brand); }
+    button {
+      width: 100%; margin-top: 16px; padding: 14px; font-size: 16px; font-weight: 600;
+      color: #fff; background: var(--brand); border: none; border-radius: 10px; cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: var(--brand-dark); }
+    button:disabled { background: #9db8d8; cursor: default; }
+    .msg { margin-top: 14px; font-size: 14px; text-align: center; min-height: 20px; }
+    .msg.err { color: var(--err); }
+    .msg.ok { color: var(--ok); }
+    .hidden { display: none; }
+    .hint { font-size: 12px; color: #888; margin-top: 10px; text-align: center; }
+    .link { color: var(--brand); cursor: pointer; text-decoration: underline; font-size: 13px; }
+    .success-icon { font-size: 48px; text-align: center; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head">
+      <h1>SLNMODA</h1>
+      <p>Misafir Wi-Fi Erişimi</p>
+    </div>
+    <div class="body">
+
+      <!-- ADIM 1: Telefon -->
+      <div id="step-phone">
+        <label for="phone">Cep telefonu numaranız</label>
+        <input id="phone" type="tel" inputmode="tel" placeholder="+90 5XX XXX XX XX" autocomplete="tel" />
+        <button id="btn-send">Doğrulama Kodu Gönder</button>
+        <div class="hint">Numaranıza SMS ile 6 haneli bir kod gönderilecektir.</div>
+      </div>
+
+      <!-- ADIM 2: Kod -->
+      <div id="step-code" class="hidden">
+        <label for="code">SMS ile gelen kod</label>
+        <input id="code" type="text" inputmode="numeric" maxlength="6" placeholder="______" autocomplete="one-time-code" />
+        <button id="btn-verify">Doğrula ve Bağlan</button>
+        <div class="hint"><span class="link" id="back">← Numarayı değiştir</span></div>
+      </div>
+
+      <!-- ADIM 3: Basari -->
+      <div id="step-done" class="hidden" style="text-align:center;">
+        <div class="success-icon">✅</div>
+        <h2 style="margin:0;color:var(--ok);">Bağlandınız!</h2>
+        <p style="color:#555;">Misafir Wi-Fi erişiminiz aktif. İyi günler dileriz.</p>
+      </div>
+
+      <div id="msg" class="msg"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const msg = $("msg");
+    let currentPhone = "";
+
+    function show(el, text, ok) {
+      msg.textContent = text || "";
+      msg.className = "msg" + (text ? (ok ? " ok" : " err") : "");
+    }
+    function goto(step) {
+      for (const s of ["step-phone", "step-code", "step-done"]) $(s).classList.add("hidden");
+      $(step).classList.remove("hidden");
+      show("");
+    }
+
+    async function api(path, body) {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      let data = {};
+      try { data = await res.json(); } catch {}
+      return { code: res.status, data };
+    }
+
+    $("btn-send").addEventListener("click", async () => {
+      const phone = $("phone").value.replace(/[^\d+]/g, "");
+      if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+        return show("Lütfen numaranızı +90 ile başlayarak girin.", false);
+      }
+      const btn = $("btn-send");
+      btn.disabled = true; show("Kod gönderiliyor…", true);
+      try {
+        const { code, data } = await api("/api/otp/request", { phone });
+        if (code === 200) {
+          currentPhone = phone; goto("step-code");
+          show("Kod telefonunuza gönderildi.", true);
+        } else if (code === 429) {
+          show(data.message || "Çok sık istek. Lütfen bekleyin.", false);
+        } else {
+          show(data.message || "Kod gönderilemedi, tekrar deneyin.", false);
+        }
+      } catch {
+        show("Sunucuya ulaşılamadı.", false);
+      } finally { btn.disabled = false; }
+    });
+
+    $("btn-verify").addEventListener("click", async () => {
+      const code = $("code").value.trim();
+      if (!code) return show("Kodu girin.", false);
+      const btn = $("btn-verify");
+      btn.disabled = true; show("Doğrulanıyor…", true);
+      try {
+        const { code: status, data } = await api("/api/otp/verify", { phone: currentPhone, code });
+        if (status === 200) { goto("step-done"); }
+        else { show(data.message || "Kod hatalı.", false); }
+      } catch {
+        show("Sunucuya ulaşılamadı.", false);
+      } finally { btn.disabled = false; }
+    });
+
+    $("back").addEventListener("click", () => goto("step-phone"));
+  </script>
+</body>
+</html>

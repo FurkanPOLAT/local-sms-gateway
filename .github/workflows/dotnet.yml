@@ -1,0 +1,42 @@
+name: Build .NET Client
+
+# Captive Portal (.NET 8) istemcisini derler ve yayin ciktisini artifact yapar.
+on:
+  push:
+    branches: [ main, master ]
+    paths: [ 'clients/dotnet/**', '.github/workflows/dotnet.yml' ]
+  pull_request:
+    paths: [ 'clients/dotnet/**', '.github/workflows/dotnet.yml' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/dotnet/CaptivePortalSms
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: .NET 8 SDK kur
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build --no-restore -c Release
+
+      - name: Publish
+        run: dotnet publish -c Release -o publish --no-build
+
+      - name: Yayin ciktisini yukle (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: captive-portal-dotnet
+          path: clients/dotnet/CaptivePortalSms/publish
+          if-no-files-found: error

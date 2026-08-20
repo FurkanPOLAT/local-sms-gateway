@@ -1,0 +1,21 @@
+@host = http://localhost:5080
+
+### Saglik
+GET {{host}}/health
+
+### 1) OTP iste (SMS gonderilir)
+POST {{host}}/api/otp/request
+Content-Type: application/json
+
+{
+  "phone": "+905321112233"
+}
+
+### 2) OTP dogrula (gelen kodu yaz)
+POST {{host}}/api/otp/verify
+Content-Type: application/json
+
+{
+  "phone": "+905321112233",
+  "code": "481920"
+}

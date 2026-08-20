@@ -14,3 +14,10 @@ local.properties
 *.keystore
 *.jks
 keystore.properties
+
+# ---- .NET client ----
+[Bb]in/
+[Oo]bj/
+appsettings.Development.json
+appsettings.*.local.json
+*.user
