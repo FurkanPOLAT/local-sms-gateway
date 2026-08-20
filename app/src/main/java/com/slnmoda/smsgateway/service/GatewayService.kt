@@ -19,6 +19,7 @@ import com.slnmoda.smsgateway.MainActivity
 import com.slnmoda.smsgateway.R
 import com.slnmoda.smsgateway.data.LogRepository
 import com.slnmoda.smsgateway.server.GatewayHttpServer
+import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -49,7 +50,7 @@ class GatewayService : LifecycleService() {
         if (server != null) return
         try {
             server = GatewayHttpServer(applicationContext, BuildConfig.GATEWAY_PORT).apply {
-                start(SOCKET_READ_TIMEOUT, false)
+                start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             }
             Log.i(TAG, "Gateway sunucusu ${BuildConfig.GATEWAY_PORT} portunda baslatildi.")
         } catch (e: Exception) {
