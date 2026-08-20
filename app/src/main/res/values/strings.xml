@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Local SMS Gateway</string>
+
+    <string name="header_title">Yerel GSM SMS Gateway</string>
+    <string name="header_subtitle">Şirket içi OTP / bildirim SMS röle servisi</string>
+
+    <string name="btn_start">Servisi Başlat</string>
+    <string name="btn_stop">Servisi Durdur</string>
+    <string name="btn_battery">Pil Optimizasyonunu Kapat</string>
+    <string name="btn_regenerate_key">API Anahtarını Yenile</string>
+
+    <string name="status_endpoint">Erişim adresi:\nhttp://%1$s:%2$d/api/v1/sms/send</string>
+    <string name="status_api_key">X-API-KEY:\n%1$s</string>
+
+    <string name="notif_channel_name">SMS Gateway Servisi</string>
+    <string name="notif_channel_desc">Yerel SMS gateway ön plan servisi bildirimleri</string>
+    <string name="notif_title">SMS Gateway aktif</string>
+    <string name="notif_text">Yerel API %1$d portunda dinliyor</string>
+
+    <string name="err_sms_permission">SMS gönderme izni verilmeden servis çalışamaz.</string>
+    <string name="msg_key_regenerated">Yeni API anahtarı üretildi.</string>
+</resources>
