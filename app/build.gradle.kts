@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Release imzalama bilgileri ortam degiskenlerinden okunur (CI icin).
+// Yerelde bu degiskenler yoksa release imzasiz kalir; gizli bilgi repoya girmez.
+val keystoreFile: String? = System.getenv("KEYSTORE_FILE")
+
 android {
     namespace = "com.slnmoda.smsgateway"
     compileSdk = 35
@@ -22,6 +26,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (keystoreFile != null) {
+            create("release") {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -29,6 +44,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Imza bilgisi mevcutsa release'i imzala; degilse imzasiz uretilir.
+            if (keystoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
