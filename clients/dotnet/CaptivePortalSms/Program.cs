@@ -39,6 +39,10 @@ builder.Services.AddSingleton<IComplianceStore, ComplianceStore>();
 // Aydinlatma metni saglayicisi (dosyadan yukler, surum + hash hesaplar).
 builder.Services.AddSingleton<ConsentPolicyProvider>();
 
+// FortiGate dis captive portal tamamlama ayarlari.
+builder.Services.Configure<FortigateOptions>(
+    builder.Configuration.GetSection(FortigateOptions.SectionName));
+
 // Yasal saklama süresi + periyodik temizlik görevi.
 builder.Services.Configure<RetentionOptions>(
     builder.Configuration.GetSection(RetentionOptions.SectionName));
@@ -85,14 +89,22 @@ app.MapPost("/api/otp/request", async (OtpRequestDto dto, IOtpService otp, HttpC
 });
 
 // Kod dogrula: basarili olursa 5651 erisim kaydi (hash zincirli) yazilir.
-app.MapPost("/api/otp/verify", async (OtpVerifyDto dto, IOtpService otp, HttpContext http, CancellationToken ct) =>
+app.MapPost("/api/otp/verify", async (OtpVerifyDto dto, IOtpService otp, HttpContext http,
+        IOptions<FortigateOptions> fgOpt, CancellationToken ct) =>
 {
     var ip = http.Connection.RemoteIpAddress?.ToString() ?? "";
     // MAC, FortiGate'in portal URL'ine ekledigi usermac'ten (sayfa iletir) gelir.
     var r = await otp.VerifyAsync(dto.Phone, dto.Code, ip, dto.DeviceMac, ct);
+
+    // Basarili ise FortiGate yetkilendirme bilgisini SADECE simdi don (OTP gecen alir).
+    var fg = fgOpt.Value;
+    object? fgAuth = string.IsNullOrEmpty(fg.AuthUser)
+        ? null
+        : new { username = fg.AuthUser, password = fg.AuthPassword, redirect = fg.PostLoginUrl };
+
     return r.Status switch
     {
-        OtpVerifyStatus.Verified        => Results.Ok(new { success = true, message = r.Message }),
+        OtpVerifyStatus.Verified        => Results.Ok(new { success = true, message = r.Message, fgAuth }),
         OtpVerifyStatus.TooManyAttempts => Results.Json(
             new { success = false, message = r.Message },
             statusCode: StatusCodes.Status429TooManyRequests),
