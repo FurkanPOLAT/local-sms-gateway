@@ -1,0 +1,11 @@
+bin/
+obj/
+.vs/
+*.db
+*.db-shm
+*.db-wal
+Properties/launchSettings.json
+appsettings.Development.json
+Dockerfile
+docker-compose.yml
+.env

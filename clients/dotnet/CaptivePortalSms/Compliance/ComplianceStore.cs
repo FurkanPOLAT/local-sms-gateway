@@ -77,14 +77,56 @@ public sealed class ComplianceStore : IComplianceStore
         await using var db = await _factory.CreateDbContextAsync(ct);
         var all = await db.AccessLogs.OrderBy(x => x.Sequence).ToListAsync(ct);
 
-        var prev = Genesis;
-        foreach (var e in all)
+        // Saklama silmesi (retention) zincirin başını kaldırabilir; bu yüzden
+        // "GENESIS'e kadar" DEĞİL, elde kalan kayıtların kendi aralarındaki
+        // bütünlüğü doğrulanır: her kaydın hash'i yeniden hesaplanıp eşleşmeli
+        // ve her kayıt bir öncekine (PrevHash) doğru bağlanmalı.
+        for (var i = 0; i < all.Count; i++)
         {
-            if (e.PrevHash != prev || e.Hash != ComputeHash(e))
+            var e = all[i];
+            if (e.Hash != ComputeHash(e))
                 return new ChainVerification(false, e.Sequence, all.Count);
-            prev = e.Hash;
+            if (i > 0 && e.PrevHash != all[i - 1].Hash)
+                return new ChainVerification(false, e.Sequence, all.Count);
         }
         return new ChainVerification(true, null, all.Count);
+    }
+
+    public async Task<int> PurgeExpiredAsync(int retentionDays, CancellationToken ct = default)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-retentionDays);
+        await _lock.WaitAsync(ct);
+        try
+        {
+            await using var db = await _factory.CreateDbContextAsync(ct);
+            var access = await db.AccessLogs.Where(x => x.SessionStartUtc < cutoff).ExecuteDeleteAsync(ct);
+            var consent = await db.Consents.Where(x => x.CreatedUtc < cutoff).ExecuteDeleteAsync(ct);
+            return access + consent;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<AccessLog>> QueryAccessAsync(string? phone, DateTime? fromUtc,
+        DateTime? toUtc, CancellationToken ct = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        var q = db.AccessLogs.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(phone)) q = q.Where(x => x.Phone == phone);
+        if (fromUtc is not null) q = q.Where(x => x.SessionStartUtc >= fromUtc);
+        if (toUtc is not null) q = q.Where(x => x.SessionStartUtc <= toUtc);
+        return await q.OrderBy(x => x.Sequence).ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ConsentRecord>> QueryConsentAsync(string? phone,
+        CancellationToken ct = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        var q = db.Consents.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(phone)) q = q.Where(x => x.Phone == phone);
+        return await q.OrderByDescending(x => x.CreatedUtc).ToListAsync(ct);
     }
 
     /// <summary>Kaydın kanonik metnini SHA-256 ile özetler. Alan sırası sabittir.</summary>

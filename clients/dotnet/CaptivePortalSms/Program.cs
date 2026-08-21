@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using CaptivePortalSms.Compliance;
 using CaptivePortalSms.Options;
 using CaptivePortalSms.Otp;
@@ -36,6 +38,11 @@ builder.Services.AddSingleton<IComplianceStore, ComplianceStore>();
 
 // Aydinlatma metni saglayicisi (dosyadan yukler, surum + hash hesaplar).
 builder.Services.AddSingleton<ConsentPolicyProvider>();
+
+// Yasal saklama süresi + periyodik temizlik görevi.
+builder.Services.Configure<RetentionOptions>(
+    builder.Configuration.GetSection(RetentionOptions.SectionName));
+builder.Services.AddHostedService<RetentionService>();
 
 var app = builder.Build();
 
@@ -98,5 +105,32 @@ app.MapPost("/api/otp/verify", async (OtpVerifyDto dto, IOtpService otp, HttpCon
 
 // Basit saglik ucu.
 app.MapGet("/health", () => Results.Ok(new { status = "up" }));
+
+// ---- Yonetim uclari (yasal talep icin) — X-ADMIN-KEY ile korunur ----
+var adminKey = builder.Configuration["Admin:ApiKey"] ?? "";
+
+bool Authorized(HttpContext http)
+{
+    if (string.IsNullOrEmpty(adminKey)) return false; // anahtar tanimli degilse tumu kapali
+    var provided = http.Request.Headers["X-ADMIN-KEY"].ToString();
+    return CryptographicOperations.FixedTimeEquals(
+        Encoding.UTF8.GetBytes(provided), Encoding.UTF8.GetBytes(adminKey));
+}
+
+// Zincir butunlugu dogrulama (tampering var mi?).
+app.MapGet("/api/admin/chain/verify", async (HttpContext http, IComplianceStore store, CancellationToken ct) =>
+    !Authorized(http) ? Results.Unauthorized() : Results.Ok(await store.VerifyChainAsync(ct)));
+
+// Erisim kayitlari (numara/tarih araligina gore) — yasal dISa aktarim.
+app.MapGet("/api/admin/access", async (HttpContext http, IComplianceStore store,
+        string? phone, DateTime? from, DateTime? to, CancellationToken ct) =>
+    !Authorized(http) ? Results.Unauthorized()
+        : Results.Ok(await store.QueryAccessAsync(phone, from, to, ct)));
+
+// Riza kayitlari (numaraya gore).
+app.MapGet("/api/admin/consent", async (HttpContext http, IComplianceStore store,
+        string? phone, CancellationToken ct) =>
+    !Authorized(http) ? Results.Unauthorized()
+        : Results.Ok(await store.QueryConsentAsync(phone, ct)));
 
 app.Run();

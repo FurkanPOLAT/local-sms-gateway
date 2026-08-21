@@ -17,4 +17,14 @@ public interface IComplianceStore
 
     /// <summary>Tüm zinciri baştan hesaplayıp bütünlüğü doğrular (tampering tespiti).</summary>
     Task<ChainVerification> VerifyChainAsync(CancellationToken ct = default);
+
+    /// <summary>Yasal talep için erişim kayıtlarını numara/tarih aralığına göre getirir.</summary>
+    Task<IReadOnlyList<AccessLog>> QueryAccessAsync(string? phone, DateTime? fromUtc,
+        DateTime? toUtc, CancellationToken ct = default);
+
+    /// <summary>Yasal talep için rıza kayıtlarını numaraya göre getirir.</summary>
+    Task<IReadOnlyList<ConsentRecord>> QueryConsentAsync(string? phone, CancellationToken ct = default);
+
+    /// <summary>Saklama süresi dolan kayıtları siler; silinen toplam kayıt sayısını döner.</summary>
+    Task<int> PurgeExpiredAsync(int retentionDays, CancellationToken ct = default);
 }
