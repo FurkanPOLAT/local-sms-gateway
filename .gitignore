@@ -26,6 +26,3 @@ appsettings.*.local.json
 *.db
 *.db-shm
 *.db-wal
-
-# Docker ortam dosyasi (gizli degerler) — ornek .env.example commit edilir
-.env

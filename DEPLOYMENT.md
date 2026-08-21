@@ -1,7 +1,8 @@
 # Ubuntu Kurulum Rehberi — SLN Captive Portal (5651/KVKK)
 
-Bu rehber, `.NET 8` Captive Portal servisini bir **Ubuntu sunucuya** kurmak içindir.
-Adım adım ilerle; her bölümün sonundaki **doğrulama** komutuyla o adımın çalıştığını gör.
+Bu rehber, `.NET 8` Captive Portal servisini bir **Ubuntu sunucuya** (Docker'sız,
+`systemd` ile) kurmak içindir. Adım adım ilerle; her bölümün sonundaki **doğrulama**
+komutuyla o adımın çalıştığını gör.
 
 > Mimari hatırlatma:
 > ```
@@ -9,15 +10,11 @@ Adım adım ilerle; her bölümün sonundaki **doğrulama** komutuyla o adımın
 >                                                         └─ compliance.db (KVKK rıza + 5651 log)
 > ```
 
-İki kurulum yolu var — **birini** seç:
-- **A yolu — Docker (önerilen):** tek komutla kurulur, taşınabilir. Bölüm 3A.
-- **B yolu — Docker'sız (systemd):** doğrudan .NET runtime. Bölüm 3B.
-
 ---
 
 ## 0. Ön Koşullar
 
-- Ubuntu Server 22.04 veya 24.04 LTS (temiz kurulum).
+- Ubuntu Server 22.04 veya 24.04 LTS.
 - Sunucuya **statik IP** (router/FortiGate DHCP rezervasyonu). Örn. `192.168.10.20`.
 - Yönetici (sudo) yetkili bir kullanıcı.
 - Android Gateway telefonu aynı ağda, statik IP'li ve servisi açık.
@@ -36,14 +33,31 @@ sudo apt install -y git curl ca-certificates
 ```bash
 sudo timedatectl set-timezone Europe/Istanbul
 sudo timedatectl set-ntp true
-timedatectl status        # "System clock synchronized: yes" görmelisin
+timedatectl status        # "System clock synchronized: yes"
 ```
-
-**Doğrulama:** `timedatectl status` çıktısında `NTP service: active` ve `synchronized: yes`.
 
 ---
 
-## 2. Kodu Sunucuya Alma
+## 2. .NET 8 SDK Kurulumu
+
+Sunucuda hem kodu çekip hem yayınlayacağımız için **SDK** kuruyoruz (SDK, runtime'ı da içerir):
+```bash
+sudo apt install -y dotnet-sdk-8.0
+```
+> Paket bulunamazsa Microsoft deposunu ekle (bir kez):
+> ```bash
+> wget https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb -O /tmp/ms.deb
+> sudo dpkg -i /tmp/ms.deb && sudo apt update && sudo apt install -y dotnet-sdk-8.0
+> ```
+> Alternatif: SDK'yı sunucuya kurmak istemezsen, kendi bilgisayarında
+> `dotnet publish -c Release -o publish` yapıp `publish` klasörünü `scp` ile
+> `/opt/sln/portal`'a kopyala; sunucuda sadece `aspnetcore-runtime-8.0` yeter.
+
+**Doğrulama:** `dotnet --info` → ".NET SDK 8.x" görünmeli.
+
+---
+
+## 3. Kodu Alma ve Yayınlama
 
 ```bash
 sudo mkdir -p /opt/sln && sudo chown $USER:$USER /opt/sln
@@ -52,90 +66,25 @@ git clone https://github.com/FurkanPOLAT/local-sms-gateway.git
 cd local-sms-gateway/clients/dotnet/CaptivePortalSms
 ```
 
-**Doğrulama:** `ls` çıktısında `Dockerfile`, `Program.cs`, `wwwroot/` görünmeli.
-
----
-
-## 3A. Kurulum — Docker (önerilen)
-
-### 3A.1 Docker kur
+**Yayınla** (SDK yoksa, kendi bilgisayarında `dotnet publish` yapıp `scp` ile
+`/opt/sln/portal`'a kopyalayabilirsin):
 ```bash
-# Docker resmi deposu
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-# sudo'suz docker (opsiyonel — yeniden giriş gerekir)
-sudo usermod -aG docker $USER
-```
-**Doğrulama:** `docker --version` ve `docker compose version` sürüm yazmalı.
-(Gruba eklediysen çıkış-giriş yap veya `newgrp docker`.)
-
-### 3A.2 Gizli değerleri gir (.env)
-```bash
-cp .env.example .env
-nano .env
-```
-Şu üç değeri doldur:
-```
-SMS_GATEWAY_URL=http://<TELEFON-IP>:8080
-SMS_GATEWAY_KEY=<telefondaki X-API-KEY>
-ADMIN_KEY=<güçlü bir admin anahtarı üret>
-```
-Sonra izinleri kıs (ISO/KVKK):
-```bash
-chmod 600 .env
-```
-> Güçlü admin anahtarı üretmek için: `openssl rand -hex 24`
-
-### 3A.3 Derle ve başlat
-```bash
-docker compose up -d --build
-```
-**Doğrulama:**
-```bash
-docker compose ps                       # durum: running/healthy
-curl -fsS http://localhost:8080/health  # {"status":"up"}
-```
-
-### 3A.4 Kalıcılık
-Yasal kayıtlar `portal-data` adlı Docker volume'ünde (`/app/data/compliance.db`).
-Konteyner silinse bile veri durur. Volume yerini görmek için:
-```bash
-docker volume inspect captiveportalsms_portal-data
-```
-
-→ **Bölüm 4'e geç (TLS).**
-
----
-
-## 3B. Kurulum — Docker'sız (systemd) [alternatif]
-
-### 3B.1 .NET 8 runtime kur
-```bash
-sudo apt install -y aspnetcore-runtime-8.0
-# Eğer paket bulunamazsa Microsoft deposunu ekle:
-# https://learn.microsoft.com/dotnet/core/install/linux-ubuntu
-dotnet --info
-```
-
-### 3B.2 Yayınla
-```bash
-cd /opt/sln/local-sms-gateway/clients/dotnet/CaptivePortalSms
 dotnet publish -c Release -o /opt/sln/portal
 ```
 
-### 3B.3 Servis kullanıcısı + veri klasörü
+**Doğrulama:** `ls /opt/sln/portal` içinde `CaptivePortalSms.dll`, `wwwroot/`, `Legal/` olmalı.
+
+---
+
+## 4. Servis Kullanıcısı, Veri Klasörü ve Gizli Değerler
+
 ```bash
 sudo useradd --system --no-create-home slnportal
 sudo mkdir -p /opt/sln/portal/data
 sudo chown -R slnportal:slnportal /opt/sln/portal
 ```
 
-### 3B.4 Ortam dosyası (gizli değerler)
+**Ortam dosyası (gizli değerler — imaja/koda/git'e girmez):**
 ```bash
 sudo nano /etc/sln-portal.env
 ```
@@ -152,12 +101,16 @@ ASPNETCORE_ENVIRONMENT=Production
 sudo chmod 600 /etc/sln-portal.env
 sudo chown slnportal:slnportal /etc/sln-portal.env
 ```
+> Güçlü admin anahtarı: `openssl rand -hex 24`
+> `ASPNETCORE_URLS=127.0.0.1` → dışarıya doğrudan açılmaz; nginx (Bölüm 6) TLS ile sunar.
 
-### 3B.5 systemd servisi
+---
+
+## 5. systemd Servisi
+
 ```bash
 sudo nano /etc/systemd/system/sln-portal.service
 ```
-İçerik:
 ```ini
 [Unit]
 Description=SLN Captive Portal (5651/KVKK)
@@ -179,28 +132,25 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable --now sln-portal
 sudo systemctl status sln-portal        # active (running)
-curl -fsS http://localhost:8080/health  # {"status":"up"}
+curl -fsS http://127.0.0.1:8080/health  # {"status":"up"}
 ```
+
+**Doğrulama:** `/health` → `{"status":"up"}`. Loglar: `journalctl -u sln-portal -f`.
 
 ---
 
-## 4. TLS (HTTPS) — nginx reverse proxy
+## 6. TLS (HTTPS) — nginx reverse proxy
 
-Uygulama içeride HTTP (8080) dinler; dışarıya **nginx** HTTPS sunar.
+Uygulama içeride HTTP (127.0.0.1:8080) dinler; dışarıya **nginx** HTTPS sunar.
 
 ```bash
 sudo apt install -y nginx
-```
-
-**Sertifika:** İç ağ için kurumsal iç CA veya self-signed. Hızlı self-signed:
-```bash
 sudo mkdir -p /etc/nginx/certs
 sudo openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
   -keyout /etc/nginx/certs/portal.key -out /etc/nginx/certs/portal.crt \
   -subj "/C=TR/O=SLN Tekstil/CN=portal.sln.local"
 ```
 
-**nginx site:**
 ```bash
 sudo nano /etc/nginx/sites-available/sln-portal
 ```
@@ -232,39 +182,43 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 > **Önemli (IP loglama):** nginx arkasında gerçek misafir IP'si `X-Forwarded-For`
-> başlığında gelir. 5651 logunda gerçek IP'yi yazmak için uygulamaya "forwarded
-> headers" ayarı gerekir — bu bir sonraki kod adımımız (deploy sırasında birlikte
-> ekleriz). Docker'da 8080'i doğrudan FortiGate'e verirsen bu gerekmez.
+> başlığında gelir. 5651 logunda doğru IP için uygulamaya "forwarded headers"
+> ayarı gerekir — bunu deploy sırasında birlikte ekleriz. (nginx kullanmaz,
+> FortiGate'i doğrudan 8080'e yönlendirirsen gerekmez.)
 
 ---
 
-## 5. FortiGate Entegrasyonu (kavramsal — cihaz başında birlikte)
+## 7. FortiGate 200F Entegrasyonu (kavramsal — cihaz başında birlikte)
 
-Tipik "harici captive portal" akışı:
-1. Misafir Wi-Fi'ye bağlanır → FortiGate yakalar.
-2. FortiGate, kimliği doğrulanmamış kullanıcıyı **portal URL'imize** yönlendirir
-   (FortiGate; `usermac`, `apmac`, `magic` gibi parametreler ekler).
-3. Kullanıcı numara + OTP ile doğrular (bizim portal).
-4. Portal, FortiGate'e "bu kullanıcıya izin ver" bilgisini geri gönderir
-   (FortiOS sürümüne göre `fgtauth` POST'u veya RADIUS).
+Hedef akış: **misafir bağlanır → portal açılır → OTP başarılı → internet açılır.**
 
-**Şimdiden yapılacak FortiGate ayarları:**
-- Portal sunucusuna (Ubuntu IP) misafir VLAN'ından **80/443** erişimine izin (auth öncesi exempt).
-- Portal → Android Gateway (`:8080`) trafiğine izin.
-- Misafir VLAN'ından portal sunucusunun **admin uçlarına erişim ENGELLİ** (sadece yönetim VLAN'ı).
+1. **Walled garden:** Auth öncesi misafir yalnızca portal sunucusuna + DNS'e ulaşsın;
+   diğer her istek portala yönlendirilsin.
+2. **External captive portal:** SSID/VLAN güvenlik ayarında portal tipi = *External*,
+   `external-web = https://<UBUNTU-IP-veya-portal.sln.local>`.
+3. **OTP sonrası yetkilendirme:** İki yol —
+   - **RADIUS (önerilen/güvenli):** FortiGate, phone+OTP'yi RADIUS ile bize sorar;
+     OTP doğruysa erişim açılır. OTP atlanamaz.
+   - **Paylaşımlı hesap + magic (basit):** Portal, OTP sonrası sabit bir misafir
+     hesabıyla FortiGate'e giriş yapar. Daha kolay ama OTP atlama riski taşır.
 
-> FortiGate tarafındaki tam yönlendirme parametreleri ve geri-bildirim (authorize)
-> adımını, cihaz başında FortiOS sürümüne göre birlikte bağlarız. Bu adımda kod
-> tarafında MAC'i URL'den alıp erişim loguna yazacağız.
+> Tam yönlendirme parametreleri ve yetkilendirme adımı FortiOS sürümüne + bağlantı
+> tipine (FortiAP / kablolu VLAN) göre değişir; cihaz başında birlikte bağlanır.
+> Portal, FortiGate'in eklediği **`usermac`**'i zaten yakalayıp 5651 kaydına yazıyor.
+
+**Şimdiden FortiGate'te açılacaklar:**
+- Misafir VLAN → portal sunucusunun **443**'üne (auth öncesi exempt) izin.
+- Portal sunucusu → Android Gateway (`:8080`) izin.
+- Misafir VLAN → portalın **admin uçlarına erişim ENGELLİ** (sadece yönetim VLAN).
 
 ---
 
-## 6. Ağ İzolasyonu / Firewall (ISO 27001)
+## 8. Ağ İzolasyonu / Firewall (ISO 27001)
 
-- Portal sunucusu **yönetim/sunucu VLAN'ında** olmalı.
-- Misafir VLAN → sadece portalın **80/443**'üne ulaşsın.
-- **Admin uçları** (`/api/admin/...`) yalnızca yönetim VLAN'ından erişilebilir olsun
-  (FortiGate kuralı + zaten `X-ADMIN-KEY` koruması var — iki katman).
+- Portal sunucusu **yönetim/sunucu VLAN'ında**.
+- Misafir VLAN → sadece portalın **443**'üne.
+- **Admin uçları** (`/api/admin/...`) yalnızca yönetim VLAN'ından (FortiGate kuralı +
+  `X-ADMIN-KEY` — iki katman).
 - Android Gateway'e (`:8080`) yalnızca portal sunucusu erişebilsin.
 
 Ubuntu yerel güvenlik duvarı (opsiyonel ek katman):
@@ -277,11 +231,9 @@ sudo ufw enable
 
 ---
 
-## 7. Yedekleme (KVKK/ISO)
+## 9. Yedekleme (KVKK/ISO)
 
-Yasal kayıtlar (`compliance.db`) düzenli yedeklenmeli.
-
-**Docker (volume) yedeği — günlük cron:**
+Yasal kayıtlar `/opt/sln/portal/data/compliance.db` — günlük yedek:
 ```bash
 sudo nano /etc/cron.daily/sln-portal-backup
 ```
@@ -291,63 +243,55 @@ set -e
 DEST=/opt/sln/backups
 mkdir -p "$DEST"
 STAMP=$(date +%F)
-docker run --rm -v captiveportalsms_portal-data:/data -v "$DEST":/backup \
-  alpine sh -c "cp /data/compliance.db /backup/compliance-$STAMP.db"
-# 90 günden eski yedekleri sil
+# SQLite tutarlı yedek (.backup) — servis çalışırken güvenli
+sqlite3 /opt/sln/portal/data/compliance.db ".backup '$DEST/compliance-$STAMP.db'"
 find "$DEST" -name 'compliance-*.db' -mtime +90 -delete
 ```
 ```bash
+sudo apt install -y sqlite3
 sudo chmod +x /etc/cron.daily/sln-portal-backup
 ```
-> Docker'sız kurulumda `compliance.db` yolu `/opt/sln/portal/data/compliance.db`;
-> aynı mantıkla `cp` ile yedekle.
-> Yedekleri **şifreli/erişimi kısıtlı** bir yerde tut.
+> Yedekleri **erişimi kısıtlı** (tercihen şifreli) bir yerde tut.
 
 ---
 
-## 8. Operasyon
+## 10. Operasyon
 
 **Güncelleme (yeni sürüm):**
 ```bash
-cd /opt/sln/local-sms-gateway
-git pull
+cd /opt/sln/local-sms-gateway && git pull
 cd clients/dotnet/CaptivePortalSms
-docker compose up -d --build      # Docker
-# veya: dotnet publish + sudo systemctl restart sln-portal   (systemd)
+sudo -u slnportal dotnet publish -c Release -o /opt/sln/portal   # veya kendi PC'nde publish + scp
+sudo systemctl restart sln-portal
 ```
 
-**Anahtar rotasyonu:** Telefonda "Anahtarı Yenile" → `.env` (veya `/etc/sln-portal.env`)
-güncelle → servisi yeniden başlat.
+**Anahtar rotasyonu:** Telefonda "Anahtarı Yenile" → `/etc/sln-portal.env` güncelle →
+`sudo systemctl restart sln-portal`.
 
 **Zincir bütünlüğü kontrolü (yasal kanıt sağlamlığı):**
 ```bash
-curl -s -H "X-ADMIN-KEY: <ADMIN_KEY>" http://localhost:8080/api/admin/chain/verify
-# {"valid":true,...} beklenir
+curl -s -H "X-ADMIN-KEY: <ADMIN_KEY>" http://127.0.0.1:8080/api/admin/chain/verify
 ```
 
 **Yasal talep — kayıt dışa aktarımı:**
 ```bash
 curl -s -H "X-ADMIN-KEY: <ADMIN_KEY>" \
-  "http://localhost:8080/api/admin/access?phone=+905321112233" | jq .
+  "http://127.0.0.1:8080/api/admin/access?phone=+905321112233"
 ```
 
-**Loglar:**
-```bash
-docker compose logs -f            # Docker
-journalctl -u sln-portal -f       # systemd
-```
+**Loglar:** `journalctl -u sln-portal -f`
 
 ---
 
-## 9. KVKK / ISO 27001 Kontrol Listesi
+## 11. KVKK / ISO 27001 Kontrol Listesi
 
 - [ ] Aydınlatma metnindeki **saklama süresi (2 yıl)** hukuk onaylı.
 - [ ] VERBİS kayıt yükümlülüğü uyum birimiyle teyit edildi.
-- [ ] `.env` / env dosyası `chmod 600`, sadece yetkili erişebiliyor.
+- [ ] `/etc/sln-portal.env` `chmod 600`, sadece `slnportal` erişebiliyor.
 - [ ] Admin uçları yalnızca yönetim VLAN'ından erişilebilir.
 - [ ] Sunucu saati NTP ile senkron.
 - [ ] Günlük yedek çalışıyor, yedekler erişimi kısıtlı yerde.
-- [ ] TLS aktif (HTTPS).
+- [ ] TLS (HTTPS) aktif.
 - [ ] Zincir doğrulama (`chain/verify`) düzenli kontrol ediliyor.
 - [ ] Anahtar rotasyon planı var.
 - [ ] Aydınlatma metni + rıza akışı canlıda çalışıyor.
@@ -358,7 +302,8 @@ journalctl -u sln-portal -f       # systemd
 
 | Belirti | Bakılacak |
 |---|---|
-| Portal açılmıyor | `docker compose ps` / `systemctl status`, `curl localhost:8080/health` |
-| SMS gitmiyor | Telefon IP doğru mu, gateway servisi açık mı, `.env`'deki `SMS_GATEWAY_KEY` doğru mu |
-| Admin ucu 401 | `X-ADMIN-KEY` header'ı `.env`'deki `ADMIN_KEY` ile aynı mı |
-| Loglarda IP yanlış | nginx arkasındaysan "forwarded headers" adımı (Bölüm 4 notu) |
+| Servis başlamıyor | `sudo systemctl status sln-portal`, `journalctl -u sln-portal -e` |
+| `/health` çalışmıyor | `ASPNETCORE_URLS` doğru mu, port çakışması var mı |
+| SMS gitmiyor | Telefon IP doğru mu, gateway açık mı, `SmsGateway__ApiKey` doğru mu |
+| Admin ucu 401 | `X-ADMIN-KEY` `/etc/sln-portal.env`'deki `Admin__ApiKey` ile aynı mı |
+| Loglarda IP yanlış | nginx arkasındaysan "forwarded headers" adımı (Bölüm 6 notu) |
