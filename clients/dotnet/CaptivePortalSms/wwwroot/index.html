@@ -211,6 +211,11 @@
     let currentPhone = "";
     let policyVersion = null;
 
+    // FortiGate captive portal, yonlendirme URL'ine parametre ekler
+    // (usermac, magic, post/4Tredir vb.). Bunlari yakala.
+    const fg = new URLSearchParams(location.search);
+    const fgMac = fg.get("usermac") || fg.get("mac") || null;
+
     function show(text, ok) {
       msg.textContent = text || "";
       msg.className = "msg" + (text ? (ok ? " ok" : " err") : "");
@@ -299,7 +304,7 @@
       const btn = $("btn-verify");
       btn.disabled = true; show("Doğrulanıyor…", true);
       try {
-        const { code: status, data } = await api("/api/otp/verify", { phone: currentPhone, code });
+        const { code: status, data } = await api("/api/otp/verify", { phone: currentPhone, code, deviceMac: fgMac });
         if (status === 200) { goto("step-done"); }
         else { show(data.message || "Kod hatalı.", false); }
       } catch {

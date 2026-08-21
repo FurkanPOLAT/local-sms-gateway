@@ -88,8 +88,8 @@ app.MapPost("/api/otp/request", async (OtpRequestDto dto, IOtpService otp, HttpC
 app.MapPost("/api/otp/verify", async (OtpVerifyDto dto, IOtpService otp, HttpContext http, CancellationToken ct) =>
 {
     var ip = http.Connection.RemoteIpAddress?.ToString() ?? "";
-    // Cihaz MAC'i su an yok; FortiGate entegrasyonunda (portal yonlendirmesi) eklenecek.
-    var r = await otp.VerifyAsync(dto.Phone, dto.Code, ip, null, ct);
+    // MAC, FortiGate'in portal URL'ine ekledigi usermac'ten (sayfa iletir) gelir.
+    var r = await otp.VerifyAsync(dto.Phone, dto.Code, ip, dto.DeviceMac, ct);
     return r.Status switch
     {
         OtpVerifyStatus.Verified        => Results.Ok(new { success = true, message = r.Message }),

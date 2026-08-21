@@ -8,10 +8,12 @@ public sealed record OtpRequestDto(
     [property: JsonPropertyName("phone")] string Phone,
     [property: JsonPropertyName("consentVersion")] string? ConsentVersion);
 
-/// <summary>POST /api/otp/verify govdesi.</summary>
+/// <summary>POST /api/otp/verify govdesi. deviceMac, FortiGate'in portal URL'ine
+/// eklediği istemci MAC adresidir (usermac); 5651 kaydina yazilir.</summary>
 public sealed record OtpVerifyDto(
     [property: JsonPropertyName("phone")] string Phone,
-    [property: JsonPropertyName("code")] string Code);
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("deviceMac")] string? DeviceMac);
 
 public enum OtpRequestStatus { Sent, InvalidPhone, Cooldown, GatewayError, ConsentRequired }
 
