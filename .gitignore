@@ -21,3 +21,8 @@ keystore.properties
 appsettings.Development.json
 appsettings.*.local.json
 *.user
+
+# SQLite calisma zamani veritabani (uygulama uretir; kayitlar commit edilmez)
+*.db
+*.db-shm
+*.db-wal

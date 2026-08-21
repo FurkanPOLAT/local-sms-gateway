@@ -5,7 +5,9 @@ namespace CaptivePortalSms.Otp;
 /// </summary>
 public interface IOtpService
 {
-    Task<OtpRequestResult> RequestAsync(string phone, CancellationToken ct = default);
+    Task<OtpRequestResult> RequestAsync(string phone, string? consentVersion,
+        string ip, string? userAgent, CancellationToken ct = default);
 
-    OtpVerifyResult Verify(string phone, string code);
+    Task<OtpVerifyResult> VerifyAsync(string phone, string code, string ip,
+        string? deviceMac, CancellationToken ct = default);
 }

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using CaptivePortalSms.Compliance;
 using CaptivePortalSms.Options;
 using CaptivePortalSms.Sms;
 using Microsoft.Extensions.Caching.Memory;
@@ -13,17 +14,23 @@ public sealed partial class OtpService : IOtpService
     private readonly ISmsGatewayClient _sms;
     private readonly IMemoryCache _cache;
     private readonly OtpOptions _options;
+    private readonly IComplianceStore _compliance;
+    private readonly ConsentPolicyProvider _policy;
     private readonly ILogger<OtpService> _logger;
 
     public OtpService(
         ISmsGatewayClient sms,
         IMemoryCache cache,
         IOptions<OtpOptions> options,
+        IComplianceStore compliance,
+        ConsentPolicyProvider policy,
         ILogger<OtpService> logger)
     {
         _sms = sms;
         _cache = cache;
         _options = options.Value;
+        _compliance = compliance;
+        _policy = policy;
         _logger = logger;
     }
 
@@ -34,10 +41,19 @@ public sealed partial class OtpService : IOtpService
         public int Attempts;
     }
 
-    public async Task<OtpRequestResult> RequestAsync(string phone, CancellationToken ct = default)
+    public async Task<OtpRequestResult> RequestAsync(string phone, string? consentVersion,
+        string ip, string? userAgent, CancellationToken ct = default)
     {
         if (!IsValidPhone(phone))
             return new OtpRequestResult(OtpRequestStatus.InvalidPhone, "Gecersiz telefon formati (E.164 bekleniyor).");
+
+        // KVKK: aydinlatma metninin GUNCEL surumu onaylanmadan islem yapilmaz.
+        if (consentVersion != _policy.Version)
+            return new OtpRequestResult(OtpRequestStatus.ConsentRequired,
+                "Devam etmek icin aydinlatma metnini onaylamaniz gerekir.");
+
+        // Onay kaydi (hangi surum, ne zaman, hangi IP). Kanit icin saklanir.
+        await _compliance.RecordConsentAsync(phone, _policy.Version, _policy.Hash, ip, userAgent, ct);
 
         // Client tarafi cooldown (gateway'in 429'una gelmeden nazik uyari).
         if (_cache.TryGetValue(CooldownKey(phone), out _))
@@ -68,7 +84,8 @@ public sealed partial class OtpService : IOtpService
         return new OtpRequestResult(OtpRequestStatus.Sent, "Dogrulama kodu gonderildi.");
     }
 
-    public OtpVerifyResult Verify(string phone, string code)
+    public async Task<OtpVerifyResult> VerifyAsync(string phone, string code, string ip,
+        string? deviceMac, CancellationToken ct = default)
     {
         if (!IsValidPhone(phone))
             return new OtpVerifyResult(OtpVerifyStatus.InvalidPhone, "Gecersiz telefon formati.");
@@ -87,7 +104,9 @@ public sealed partial class OtpService : IOtpService
         if (ConstantTimeEquals(entry.Code, code?.Trim() ?? ""))
         {
             _cache.Remove(OtpKey(phone));
-            _logger.LogInformation("OTP dogrulandi ({Phone}).", Mask(phone));
+            // 5651 kimlik/erisim kaydi: hash zincirine eklenir (degistirilemez kanit).
+            var log = await _compliance.RecordAccessAsync(phone, deviceMac, ip, DateTime.UtcNow, ct);
+            _logger.LogInformation("OTP dogrulandi ({Phone}), erisim kaydi #{Seq}.", Mask(phone), log.Sequence);
             return new OtpVerifyResult(OtpVerifyStatus.Verified, "Dogrulama basarili.");
         }
 

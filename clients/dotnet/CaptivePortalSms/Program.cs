@@ -1,6 +1,8 @@
+using CaptivePortalSms.Compliance;
 using CaptivePortalSms.Options;
 using CaptivePortalSms.Otp;
 using CaptivePortalSms.Sms;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,7 +28,24 @@ builder.Services.AddHttpClient<ISmsGatewayClient, SmsGatewayClient>((sp, client)
 
 builder.Services.AddScoped<IOtpService, OtpService>();
 
+// Uyumluluk veritabani (KVKK riza + 5651 erisim logu, hash zincirli).
+var complianceConn = builder.Configuration.GetConnectionString("ComplianceDb")
+    ?? "Data Source=compliance.db";
+builder.Services.AddDbContextFactory<ComplianceDbContext>(o => o.UseSqlite(complianceConn));
+builder.Services.AddSingleton<IComplianceStore, ComplianceStore>();
+
+// Aydinlatma metni saglayicisi (dosyadan yukler, surum + hash hesaplar).
+builder.Services.AddSingleton<ConsentPolicyProvider>();
+
 var app = builder.Build();
+
+// Veritabani semasini olustur (yoksa). Ileride migration'a gecilebilir.
+using (var scope = app.Services.CreateScope())
+{
+    var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<ComplianceDbContext>>();
+    using var db = factory.CreateDbContext();
+    db.Database.EnsureCreated();
+}
 
 // wwwroot/index.html (Captive Portal ekrani) ayni origin'den sunulur -> CORS yok.
 app.UseDefaultFiles();
@@ -34,27 +53,36 @@ app.UseStaticFiles();
 
 // ---- Endpoint'ler ----
 
-// Kod iste: OTP uret + SMS gonder.
-app.MapPost("/api/otp/request", async (OtpRequestDto dto, IOtpService otp, CancellationToken ct) =>
+// Aydinlatma metni: portal OTP'den once bunu gosterir.
+app.MapGet("/api/consent/policy", (ConsentPolicyProvider p) =>
+    Results.Ok(new { version = p.Version, text = p.Text }));
+
+// Kod iste: KVKK onayini kaydet + OTP uret + SMS gonder.
+app.MapPost("/api/otp/request", async (OtpRequestDto dto, IOtpService otp, HttpContext http, CancellationToken ct) =>
 {
-    var r = await otp.RequestAsync(dto.Phone, ct);
+    var ip = http.Connection.RemoteIpAddress?.ToString() ?? "";
+    var ua = http.Request.Headers.UserAgent.ToString();
+    var r = await otp.RequestAsync(dto.Phone, dto.ConsentVersion, ip, ua, ct);
     return r.Status switch
     {
-        OtpRequestStatus.Sent         => Results.Ok(new { success = true, message = r.Message }),
-        OtpRequestStatus.InvalidPhone => Results.BadRequest(new { success = false, message = r.Message }),
-        OtpRequestStatus.Cooldown     => Results.Json(
+        OtpRequestStatus.Sent            => Results.Ok(new { success = true, message = r.Message }),
+        OtpRequestStatus.InvalidPhone    => Results.BadRequest(new { success = false, message = r.Message }),
+        OtpRequestStatus.ConsentRequired => Results.BadRequest(new { success = false, message = r.Message }),
+        OtpRequestStatus.Cooldown        => Results.Json(
             new { success = false, message = r.Message, retryAfter = r.RetryAfterSeconds },
             statusCode: StatusCodes.Status429TooManyRequests),
-        _                             => Results.Json(
+        _                                => Results.Json(
             new { success = false, message = r.Message },
             statusCode: StatusCodes.Status502BadGateway),
     };
 });
 
-// Kod dogrula.
-app.MapPost("/api/otp/verify", (OtpVerifyDto dto, IOtpService otp) =>
+// Kod dogrula: basarili olursa 5651 erisim kaydi (hash zincirli) yazilir.
+app.MapPost("/api/otp/verify", async (OtpVerifyDto dto, IOtpService otp, HttpContext http, CancellationToken ct) =>
 {
-    var r = otp.Verify(dto.Phone, dto.Code);
+    var ip = http.Connection.RemoteIpAddress?.ToString() ?? "";
+    // Cihaz MAC'i su an yok; FortiGate entegrasyonunda (portal yonlendirmesi) eklenecek.
+    var r = await otp.VerifyAsync(dto.Phone, dto.Code, ip, null, ct);
     return r.Status switch
     {
         OtpVerifyStatus.Verified        => Results.Ok(new { success = true, message = r.Message }),

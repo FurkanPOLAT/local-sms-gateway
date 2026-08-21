@@ -8,9 +8,15 @@
     <UserSecretsId>b46885a3-6cc4-42fc-9751-e476e09bb348</UserSecretsId>
   </PropertyGroup>
 
-  <!--
-    Ekstra NuGet paketi yok. Retry/backoff manuel yazildi (Polly opsiyonel).
-    Sadece framework bagimliliklari kullanilir.
-  -->
+  <ItemGroup>
+    <!-- Uyumluluk veritabani: SQLite (EF Core). Dusuk hacim icin yeterli,
+         Ubuntu'da ayri DB sunucusu gerektirmez. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Aydinlatma metni calisirken okunabilsin diye ciktiya kopyalanir. -->
+    <Content Include="Legal\**\*.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 
 </Project>
