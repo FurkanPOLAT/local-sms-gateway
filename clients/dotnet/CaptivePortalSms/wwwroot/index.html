@@ -218,8 +218,9 @@
     const fgPost = fg.get("post");     // http://<fgt>:1000/fgtauth
     const fgMagic = fg.get("magic");
 
-    // OTP basarili + FortiGate parametreleri varsa: fgtauth'a POST -> erisim acilir.
-    function completeFortiGate(auth) {
+    // FortiGate'e giriş: telefon (username) + OTP (password) fgtauth'a POST edilir.
+    // FortiGate bunu RADIUS ile bize sorar; OTP doğruysa erişimi açar.
+    function completeFortiGate(username, password) {
       const f = document.createElement("form");
       f.method = "POST";
       f.action = fgPost;
@@ -227,10 +228,10 @@
         const i = document.createElement("input");
         i.type = "hidden"; i.name = n; i.value = v; f.appendChild(i);
       };
-      add("4Tredir", (auth && auth.redirect) || "http://www.gstatic.com/generate_204");
+      add("4Tredir", "http://www.gstatic.com/generate_204");
       add("magic", fgMagic);
-      add("username", auth.username);
-      add("password", auth.password);
+      add("username", username);
+      add("password", password);
       document.body.appendChild(f);
       f.submit();
     }
@@ -320,21 +321,21 @@
     $("btn-verify").addEventListener("click", async () => {
       const code = $("code").value.trim();
       if (!code) return show("Kodu girin.", false);
+
+      // FortiGate akışı: OTP'yi FortiGate'e gönder (RADIUS doğrular).
+      if (fgPost && fgMagic) {
+        show("Doğrulanıyor, internet açılıyor…", true);
+        completeFortiGate(currentPhone, code);
+        return;
+      }
+
+      // Standalone/test modu: kendi API'mizle doğrula.
       const btn = $("btn-verify");
       btn.disabled = true; show("Doğrulanıyor…", true);
       try {
         const { code: status, data } = await api("/api/otp/verify", { phone: currentPhone, code, deviceMac: fgMac });
-        if (status === 200) {
-          // FortiGate akışındaysak (post+magic var) erişimi aç; değilse başarı ekranı.
-          if (fgPost && fgMagic && data.fgAuth && data.fgAuth.username) {
-            show("İnternet erişiminiz açılıyor…", true);
-            completeFortiGate(data.fgAuth);
-          } else {
-            goto("step-done");
-          }
-        } else {
-          show(data.message || "Kod hatalı.", false);
-        }
+        if (status === 200) goto("step-done");
+        else show(data.message || "Kod hatalı.", false);
       } catch {
         show("Sunucuya ulaşılamadı.", false);
       } finally { btn.disabled = false; }

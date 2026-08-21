@@ -43,6 +43,11 @@ builder.Services.AddSingleton<ConsentPolicyProvider>();
 builder.Services.Configure<FortigateOptions>(
     builder.Configuration.GetSection(FortigateOptions.SectionName));
 
+// RADIUS dinleyici (FortiGate telefon+OTP'yi buraya sorar; SharedSecret yoksa kapali).
+builder.Services.Configure<RadiusOptions>(
+    builder.Configuration.GetSection(RadiusOptions.SectionName));
+builder.Services.AddHostedService<CaptivePortalSms.Radius.RadiusServer>();
+
 // Yasal saklama süresi + periyodik temizlik görevi.
 builder.Services.Configure<RetentionOptions>(
     builder.Configuration.GetSection(RetentionOptions.SectionName));
